@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "snapmap"
+version = "0.1.0"
+description = "Fast nmap-driven web attack-surface recon into a single self-contained HTML report"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Giorgio Campiotti" }]
+keywords = ["nmap", "recon", "security", "pentest", "screenshots", "attack-surface", "http"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+]
+dependencies = [
+    "httpx>=0.27",
+    "jinja2>=3.1",
+    "mmh3>=4.0",
+    "playwright>=1.40",
+]
+
+[project.urls]
+Homepage = "https://github.com/Giorgiofox/snapmap"
+Repository = "https://github.com/Giorgiofox/snapmap"
+
+[project.scripts]
+snapmap = "snapmap.cli:main"
+
+[dependency-groups]
+dev = ["ruff>=0.6"]
+
+[tool.setuptools]
+packages = ["snapmap"]
+
+[tool.setuptools.package-data]
+snapmap = ["data/*.csv", "templates/*.j2"]

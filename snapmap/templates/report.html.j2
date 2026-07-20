@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Snapmap — {{ meta.target }}</title>
+<style>
+  :root {
+    --bg: #0d1117; --bg2: #161b22; --bg3: #21262d; --border: #30363d;
+    --fg: #e6edf3; --fg-dim: #8b949e; --accent: #4895ef; --accent2: #388bfd;
+    --sev-critical: #b5179e; --sev-high: #e63946; --sev-medium: #f4a261;
+    --sev-low: #e9c46a; --sev-info: #4895ef;
+    --st-2xx: #2ea043; --st-3xx: #4895ef; --st-4xx: #f4a261; --st-5xx: #e63946; --st-none: #6e7681;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--fg); font: 14px/1.45 -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif; overflow-x: hidden;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  button, select, input { font: inherit; color: var(--fg); }
+  button { cursor: pointer; }
+
+  /* Header */
+  header {
+    background: var(--bg2); border-bottom: 1px solid var(--border);
+    padding: 14px 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 16px;
+  }
+  header .brand { font-size: 18px; font-weight: 700; letter-spacing: .5px; }
+  header .brand span { color: var(--accent); }
+  header .meta { color: var(--fg-dim); font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  header .meta b { color: var(--fg); font-weight: 600; }
+  header .legend { margin-left: auto; display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; }
+  header .legend .lg { display: inline-flex; align-items: center; gap: 5px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+  .sev-critical { background: var(--sev-critical); }
+  .sev-high { background: var(--sev-high); }
+  .sev-medium { background: var(--sev-medium); }
+  .sev-low { background: var(--sev-low); }
+  .sev-info { background: var(--sev-info); }
+
+  /* View tabs */
+  .viewtabs { display: flex; gap: 8px; }
+  .viewtabs button {
+    background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 14px; font-weight: 600;
+  }
+  .viewtabs button.active { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+
+  /* Toolbar */
+  .toolbar {
+    position: sticky; top: 0; z-index: 30; background: var(--bg2);
+    border-bottom: 1px solid var(--border); padding: 10px 20px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  }
+  .toolbar input[type=text] {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 10px; min-width: 240px; flex: 1 1 260px;
+  }
+  .toolbar select {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 7px 8px;
+  }
+  .toolbar label.chk { display: inline-flex; align-items: center; gap: 5px; color: var(--fg-dim); font-size: 12.5px; white-space: nowrap; }
+  .toolbar .count { margin-left: auto; color: var(--fg-dim); font-size: 12.5px; white-space: nowrap; }
+  .toolbar .sep { color: var(--border); }
+
+  /* Grid */
+  main { padding: 18px 20px 60px; }
+  .groupname {
+    grid-column: 1 / -1; margin: 18px 0 4px; font-size: 13px; font-weight: 700;
+    color: var(--fg-dim); text-transform: uppercase; letter-spacing: .6px;
+    border-bottom: 1px solid var(--border); padding-bottom: 6px;
+  }
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;
+  }
+  .card {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden; cursor: pointer; display: flex; flex-direction: column;
+    transition: border-color .12s, transform .12s;
+  }
+  .card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .card .shot {
+    width: 100%; aspect-ratio: 16 / 10; background: var(--bg3); object-fit: cover;
+    object-position: top; display: block; border-bottom: 1px solid var(--border);
+  }
+  .card .shot.ph { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    color: var(--fg-dim); font-size: 11.5px;
+    background-image: radial-gradient(circle at 1px 1px, var(--bg3) 1px, transparent 0); background-size: 14px 14px; }
+  .card img.shot { object-fit: cover; }
+  .card .shot.ph svg { width: 30px; height: 30px; opacity: .35; }
+  .card .body { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+  .card .titlerow { display: flex; align-items: center; gap: 7px; }
+  .card .titlerow .t { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .url { font-size: 12px; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .metarow { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--fg-dim); flex-wrap: wrap; }
+  .badge { border-radius: 5px; padding: 1px 7px; font-size: 11.5px; font-weight: 700; color: #06121f; }
+  .badge.b2xx { background: var(--st-2xx); color: #fff; }
+  .badge.b3xx { background: var(--st-3xx); color: #06121f; }
+  .badge.b4xx { background: var(--st-4xx); }
+  .badge.b5xx { background: var(--st-5xx); color: #fff; }
+  .badge.bnone { background: var(--st-none); color: #fff; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip { background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 11px; color: var(--fg-dim); }
+  .score { margin-left: auto; font-weight: 700; font-size: 11.5px; color: var(--fg-dim);
+    background: var(--bg3); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
+  .empty { color: var(--fg-dim); text-align: center; padding: 60px 20px; grid-column: 1 / -1; }
+
+  /* Summary bar */
+  .sumbar { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 20px 0; }
+  .sumpill { display: inline-flex; align-items: center; gap: 6px; background: var(--bg2);
+    border: 1px solid var(--border); border-radius: 999px; padding: 4px 11px; font-size: 12.5px;
+    color: var(--fg-dim); cursor: pointer; user-select: none; }
+  .sumpill:hover { border-color: var(--accent); }
+  .sumpill.active { background: var(--bg3); border-color: var(--accent); color: var(--fg); }
+  .sumpill b { color: var(--fg); font-weight: 700; }
+
+  /* Modal */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.65); z-index: 100;
+    display: none; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto;
+  }
+  .overlay.open { display: flex; }
+  .modal {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+    width: 100%; max-width: 880px; overflow: hidden;
+  }
+  .modal .mhead {
+    padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; gap: 12px;
+    position: sticky; top: 0; background: var(--bg2); z-index: 2;
+  }
+  .modal .mhead h2 { margin: 0; font-size: 16px; flex: 1; word-break: break-all; }
+  .modal .mhead .x { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 4px 11px; font-size: 16px; line-height: 1; }
+  .mbody { padding: 16px 18px; display: flex; flex-direction: column; gap: 18px; }
+  .msec h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--fg-dim); }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; font-size: 13px; }
+  .kv dt { color: var(--fg-dim); }
+  .kv dd { margin: 0; word-break: break-all; }
+  table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.tbl th, table.tbl td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border); word-break: break-all; vertical-align: top; }
+  table.tbl th { color: var(--fg-dim); font-weight: 600; }
+  .hdrbox, .msec .scroll { max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+  .flags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .flag { border-radius: 5px; padding: 2px 8px; font-size: 11.5px; border: 1px solid var(--border); }
+  .flag.on { background: rgba(46,160,67,.18); border-color: #2ea043; color: #6fdd8b; }
+  .flag.off { background: rgba(230,57,70,.14); border-color: #e63946; color: #ff9aa2; }
+
+  /* Issues editor */
+  .issue { display: flex; align-items: flex-start; gap: 9px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+  .issue + .issue { margin-top: 6px; }
+  .issue .it { font-weight: 600; }
+  .issue .idesc { color: var(--fg-dim); font-size: 12px; margin-top: 2px; }
+  .issue .tag { font-size: 10.5px; color: var(--fg-dim); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; margin-left: 6px; }
+  .issue .del { margin-left: auto; background: transparent; border: 1px solid var(--border); border-radius: 5px; color: var(--fg-dim); padding: 2px 8px; }
+  .issue .del:hover { border-color: var(--sev-high); color: var(--sev-high); }
+  .addissue { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; align-items: center; }
+  .addissue input, .addissue select { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+  .addissue input.title { flex: 1 1 180px; }
+  .addissue input.note { flex: 2 1 220px; }
+  .addissue button { background: var(--accent2); border: 1px solid var(--accent2); color: #fff; border-radius: 6px; padding: 6px 14px; font-weight: 600; }
+
+  /* Recap */
+  .recap { display: none; padding: 22px 20px 60px; max-width: 1100px; margin: 0 auto; }
+  .recap.open { display: block; }
+  .recap h2 { margin-top: 0; }
+  .sevcards { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0 26px; }
+  .sevcard { flex: 1 1 130px; background: var(--bg2); border: 1px solid var(--border); border-left-width: 4px; border-radius: 8px; padding: 12px 14px; }
+  .sevcard .n { font-size: 28px; font-weight: 800; }
+  .sevcard .l { color: var(--fg-dim); text-transform: uppercase; font-size: 11px; letter-spacing: .5px; }
+  .rgroup { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 12px; }
+  .rgroup summary { cursor: pointer; padding: 11px 14px; font-weight: 600; display: flex; align-items: center; gap: 9px; list-style: none; }
+  .rgroup summary::-webkit-details-marker { display: none; }
+  .rgroup summary .rcount { margin-left: auto; color: var(--fg-dim); font-size: 12.5px; }
+  .rgroup ul { margin: 0; padding: 0 14px 12px 34px; }
+  .rgroup li { list-style: disc; font-size: 12.5px; padding: 1px 0; }
+  .rgroup li a { color: var(--accent); }
+  .exportbar { display: flex; gap: 10px; margin-bottom: 18px; }
+  .exportbar button { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 8px 16px; font-weight: 600; }
+  .exportbar button:hover { border-color: var(--accent); }
+  .hidden { display: none !important; }
+
+  /* Power triage: search ops, copy, reviewed state, shortcuts */
+  .toolbar button.tbtn { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 11px; color: var(--fg); font-size: 12.5px; white-space: nowrap; }
+  .toolbar button.tbtn:hover { border-color: var(--accent); }
+  .toolbar .keys { color: var(--fg-dim); font-size: 12px; cursor: pointer;
+    text-decoration: underline dotted; white-space: nowrap; }
+  .keyslegend { padding: 8px 20px 0; color: var(--fg-dim); font-size: 12px;
+    display: none; flex-wrap: wrap; gap: 4px 18px; }
+  .keyslegend.open { display: flex; }
+  .keyslegend kbd { background: var(--bg3); border: 1px solid var(--border); border-radius: 4px;
+    padding: 0 6px; color: var(--fg); }
+  .card.reviewed { opacity: .5; }
+  .card.reviewed:hover { opacity: .85; }
+  .rev { background: transparent; border: 1px solid var(--border); border-radius: 999px;
+    padding: 0 8px; font-size: 11px; color: var(--fg-dim); line-height: 1.8; }
+  .rev:hover { border-color: var(--accent); color: var(--fg); }
+  .rev.on { background: rgba(46,160,67,.18); border-color: #2ea043; color: #6fdd8b; }
+  .metarow .rev { margin-left: auto; }
+  .mhead .nav { display: flex; gap: 6px; flex: none; }
+  .mhead .mbtn { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+    padding: 4px 10px; font-size: 13px; color: var(--fg); }
+  .mhead .mbtn:hover { border-color: var(--accent); }
+  .mhead .mbtn.on { background: rgba(46,160,67,.18); border-color: #2ea043; color: #6fdd8b; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Snap<span>map</span></div>
+  <div class="meta">
+    {% if meta.project %}<span>Project <b>{{ meta.project }}</b></span>{% endif %}
+    <span>Target <b>{{ meta.target }}</b></span>
+    <span>Generated <b>{{ meta.generated_at }}</b></span>
+    <span>Endpoints <b>{{ meta.total }}</b></span>
+    <span>Alive <b>{{ meta.alive }}</b></span>
+    {% if meta.tool_version %}<span>v<b>{{ meta.tool_version }}</b></span>{% endif %}
+  </div>
+  <div class="viewtabs">
+    <button id="tab-endpoints" class="active">Endpoints</button>
+    <button id="tab-recap">Recap</button>
+  </div>
+  <div class="legend">
+    <span class="lg"><span class="dot sev-critical"></span>critical</span>
+    <span class="lg"><span class="dot sev-high"></span>high</span>
+    <span class="lg"><span class="dot sev-medium"></span>medium</span>
+    <span class="lg"><span class="dot sev-low"></span>low</span>
+    <span class="lg"><span class="dot sev-info"></span>info</span>
+  </div>
+</header>
+
+<div id="ep-view">
+  <div class="toolbar">
+    <input type="text" id="q" autocomplete="off"
+           placeholder="Search — plain text, or ops: status: scheme: port: ip: tech: has:creds|issues|shot|reviewed">
+    <select id="f-status"><option value="">Any status</option><option value="2">2xx</option><option value="3">3xx</option><option value="4">4xx</option><option value="5">5xx</option><option value="none">No response</option></select>
+    <select id="f-scheme"><option value="">Any scheme</option><option value="http">http</option><option value="https">https</option></select>
+    <label class="chk"><input type="checkbox" id="f-shot"> screenshot</label>
+    <label class="chk"><input type="checkbox" id="f-issues"> issues</label>
+    <label class="chk"><input type="checkbox" id="f-creds"> default-creds</label>
+    <label class="chk"><input type="checkbox" id="f-hiderev"> hide reviewed</label>
+    <span class="sep">|</span>
+    <select id="sort"><option value="interest">Sort: interest ↓</option><option value="status">Sort: status</option><option value="url">Sort: url</option></select>
+    <select id="groupby"><option value="host">Group: host</option><option value="subnet">Group: subnet</option><option value="none">Group: none</option></select>
+    <select id="cols" title="Columns / screenshot size"><option value="auto">Cols: auto</option><option value="6">Cols: 6</option><option value="4">Cols: 4</option><option value="2">Cols: 2</option><option value="1">Cols: 1</option></select>
+    <button class="tbtn" id="copy-urls">Copy URLs</button>
+    <span class="keys" id="keys-toggle">keys</span>
+    <span class="count" id="count"></span>
+  </div>
+  <div class="keyslegend" id="keyslegend">
+    <span><kbd>/</kbd> focus search</span>
+    <span><kbd>Esc</kbd> close modal / clear search</span>
+    <span><kbd>Left</kbd> <kbd>Right</kbd> prev / next endpoint (modal open)</span>
+    <span>click <b>mark</b> on a card to flag it reviewed</span>
+  </div>
+  <div class="sumbar" id="sumbar"></div>
+  <main><div class="grid" id="grid"></div></main>
+</div>
+
+<div class="recap" id="recap-view">
+  <h2>Findings recap</h2>
+  <div class="exportbar">
+    <button id="exp-json">Export findings (JSON)</button>
+    <button id="exp-md">Export findings (Markdown)</button>
+  </div>
+  <div class="sevcards" id="sevcards"></div>
+  <div id="rgroups"></div>
+</div>
+
+<div class="overlay" id="overlay"><div class="modal" id="modal"></div></div>
+
+<script type="application/json" id="snapmap-data">{{ data_json|safe }}</script>
+<script type="application/json" id="snapmap-meta">{{ meta_json|safe }}</script>
+<script type="application/json" id="snapmap-sev">{{ severity_json|safe }}</script>
+<script>
+"use strict";
+(function () {
+  const DATA = JSON.parse(document.getElementById("snapmap-data").textContent);
+  const META = JSON.parse(document.getElementById("snapmap-meta").textContent);
+  const SEV = JSON.parse(document.getElementById("snapmap-sev").textContent);
+  const SEVERITIES = SEV.severities;
+  const SEV_ORDER = SEV.order;
+  const SEV_WEIGHT = SEV.weight;
+  const LS_KEY = "snapmap:manual:";
+
+  // ---- helpers -----------------------------------------------------------
+  const $ = (id) => document.getElementById(id);
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+  function statusClass(st) {
+    if (st == null) return "none";
+    return String(Math.floor(st / 100));
+  }
+  function badgeClass(st) {
+    const c = statusClass(st);
+    return { "2": "b2xx", "3": "b3xx", "4": "b4xx", "5": "b5xx", "none": "bnone" }[c] || "bnone";
+  }
+  function loadManual(url) {
+    try { return JSON.parse(localStorage.getItem(LS_KEY + url) || "[]"); }
+    catch (e) { return []; }
+  }
+  function saveManual(url, list) {
+    try { localStorage.setItem(LS_KEY + url, JSON.stringify(list)); } catch (e) {}
+  }
+  // Reviewed triage state: one JSON array of URLs, cached in a Set for the session.
+  const REVIEW_KEY = "snapmap:reviewed";
+  function loadReviewed() {
+    try { return JSON.parse(localStorage.getItem(REVIEW_KEY) || "[]"); } catch (e) { return []; }
+  }
+  const reviewed = new Set(loadReviewed());
+  function saveReviewed() {
+    try { localStorage.setItem(REVIEW_KEY, JSON.stringify([...reviewed])); } catch (e) {}
+  }
+  function isReviewed(ep) { return reviewed.has(ep.url); }
+  function setReviewed(ep, on) {
+    if (on) reviewed.add(ep.url); else reviewed.delete(ep.url);
+    saveReviewed();
+  }
+  // Merge auto (from data) + manual (from localStorage) issues for an endpoint.
+  function allIssues(ep) {
+    const auto = (ep.issues || []).map((i) => ({ ...i, source: i.source || "auto" }));
+    const manual = loadManual(ep.url).map((i) => ({ ...i, source: "manual" }));
+    return auto.concat(manual);
+  }
+  function worstSeverity(issues) {
+    let worst = null, rank = -1;
+    for (const i of issues) {
+      const r = SEV_ORDER[i.severity];
+      if (r != null && r > rank) { rank = r; worst = i.severity; }
+    }
+    return worst;
+  }
+  function score(issues) {
+    return issues.reduce((s, i) => s + (SEV_WEIGHT[i.severity] || 0), 0);
+  }
+  function groupKey(ep, mode) {
+    if (mode === "subnet") return ep.subnet || ep.ip || "—";
+    if (mode === "none") return "";
+    return ep.host || ep.ip || "—";
+  }
+  function searchBlob(ep) {
+    return [ep.url, ep.final_url, ep.title, ep.ip, ep.server,
+      (ep.technologies || []).join(" ")].join("  ").toLowerCase();
+  }
+
+  // Precompute per-endpoint search text & stable index
+  DATA.forEach((ep, i) => { ep._i = i; ep._blob = searchBlob(ep); });
+
+  // ---- lazy image observer ----------------------------------------------
+  const io = new IntersectionObserver((entries, obs) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      const img = e.target;
+      const idx = img.getAttribute("data-idx");
+      const b64 = DATA[idx] && DATA[idx].screenshot;
+      if (b64) { img.src = "data:image/png;base64," + b64; }
+      img.classList.remove("ph"); img.textContent = "";
+      obs.unobserve(img);
+    }
+  }, { rootMargin: "300px" });
+
+  // ---- card rendering ----------------------------------------------------
+  function cardHTML(ep) {
+    const issues = allIssues(ep);
+    const worst = worstSeverity(issues);
+    const sc = score(issues);
+    const st = ep.status;
+    const camIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="12" cy="12" r="3.2"/></svg>`;
+    const shot = ep.screenshot
+      ? `<img class="shot ph" data-idx="${ep._i}" alt="">`
+      : `<div class="shot ph">${camIcon}<span>no screenshot</span></div>`;
+    const chips = (ep.technologies || []).slice(0, 6)
+      .map((t) => `<span class="chip">${esc(t)}</span>`).join("");
+    const rev = isReviewed(ep);
+    return `<div class="card${rev ? " reviewed" : ""}" data-idx="${ep._i}">
+      ${shot}
+      <div class="body">
+        <div class="titlerow">
+          ${worst ? `<span class="dot sev-${worst}" title="${worst}"></span>` : ""}
+          <span class="t">${esc(ep.title || ep.host || ep.ip || "(no title)")}</span>
+          <span class="score" title="interest">${sc}</span>
+        </div>
+        <a class="url" href="${esc(ep.url)}" target="_blank" rel="noopener"
+           onclick="event.stopPropagation()">${esc(ep.url)}</a>
+        <div class="metarow">
+          <span class="badge ${badgeClass(st)}">${st == null ? "—" : st}</span>
+          <span>${esc(ep.ip)}:${esc(ep.port)}</span>
+          <span class="chip">${esc(ep.scheme)}</span>
+          <button class="rev${rev ? " on" : ""}" data-rev="${ep._i}" title="mark reviewed">${rev ? "reviewed" : "mark"}</button>
+        </div>
+        ${chips ? `<div class="chips">${chips}</div>` : ""}
+      </div>
+    </div>`;
+  }
+
+  // ---- filtering / sorting / grouping ------------------------------------
+  const state = {
+    q: "", status: "", scheme: "", shot: false, issues: false, creds: false, sev: "",
+    hideReviewed: false, sort: "interest", group: (META.group_by || "host"),
+    cols: "auto",
+  };
+  let VIEW = [];  // endpoints currently shown, in order (modal prev/next + copy urls)
+
+  // Parse the search box once per render into structured operators + free text.
+  function parseQuery(raw) {
+    const ops = { status: null, scheme: null, port: null, ip: null, tech: [], has: [] };
+    const free = [];
+    for (const tok of String(raw).toLowerCase().split(/\s+/)) {
+      if (!tok) continue;
+      const m = tok.match(/^(status|scheme|port|ip|tech|has):(.*)$/);
+      if (!m) { free.push(tok); continue; }
+      if (!m[2]) continue;
+      if (m[1] === "tech") ops.tech.push(m[2]);
+      else if (m[1] === "has") ops.has.push(m[2]);
+      else ops[m[1]] = m[2];
+    }
+    return { ops: ops, text: free.join(" ") };
+  }
+
+  function passes(ep, pq) {
+    if (pq.text && ep._blob.indexOf(pq.text) === -1) return false;
+    const o = pq.ops;
+    if (o.status) {
+      if (o.status.length === 3) { if (String(ep.status) !== o.status) return false; }
+      else if (statusClass(ep.status) !== o.status) return false;
+    }
+    if (o.scheme && ep.scheme !== o.scheme) return false;
+    if (o.port && String(ep.port) !== o.port) return false;
+    if (o.ip && (ep.ip || "").toLowerCase().indexOf(o.ip) === -1) return false;
+    if (o.tech.length) {
+      const techs = (ep.technologies || []).join(" ").toLowerCase();
+      if (!o.tech.every((tq) => techs.indexOf(tq) !== -1)) return false;
+    }
+    for (const h of o.has) {
+      if (h === "creds" && !(ep.cred_candidates && ep.cred_candidates.length)) return false;
+      if (h === "issues" && allIssues(ep).length === 0) return false;
+      if (h === "shot" && !ep.screenshot) return false;
+      if (h === "reviewed" && !isReviewed(ep)) return false;
+    }
+    // dropdown / summary-bar filters (combined with search, all AND)
+    if (state.status) {
+      if (state.status === "none") { if (ep.status != null) return false; }
+      else if (statusClass(ep.status) !== state.status) return false;
+    }
+    if (state.scheme && ep.scheme !== state.scheme) return false;
+    if (state.shot && !ep.screenshot) return false;
+    if (state.issues && allIssues(ep).length === 0) return false;
+    if (state.creds && (!ep.cred_candidates || ep.cred_candidates.length === 0)) return false;
+    if (state.sev && !allIssues(ep).some((i) => i.severity === state.sev)) return false;
+    if (state.hideReviewed && isReviewed(ep)) return false;
+    return true;
+  }
+
+  function sortFn(a, b) {
+    if (state.sort === "url") return String(a.url).localeCompare(b.url);
+    if (state.sort === "status") return (a.status || 0) - (b.status || 0) || a._i - b._i;
+    // interest desc (uses merged score so manual issues count)
+    return score(allIssues(b)) - score(allIssues(a)) || a._i - b._i;
+  }
+
+  function render() {
+    const grid = $("grid");
+    grid.style.gridTemplateColumns =
+      state.cols === "auto" ? "" : `repeat(${state.cols}, minmax(0, 1fr))`;
+    const pq = parseQuery(state.q || "");
+    const rows = DATA.filter((ep) => passes(ep, pq)).sort(sortFn);
+    VIEW = rows;
+    const revCount = rows.reduce((n, ep) => n + (isReviewed(ep) ? 1 : 0), 0);
+    $("count").textContent =
+      `${rows.length} / ${DATA.length} endpoints · ${revCount} reviewed`;
+    if (!rows.length) { grid.innerHTML = `<div class="empty">No endpoints match the filters.</div>`; return; }
+
+    let html = "";
+    if (state.group === "none") {
+      html = rows.map(cardHTML).join("");
+    } else {
+      const groups = new Map();
+      for (const ep of rows) {
+        const k = groupKey(ep, state.group);
+        if (!groups.has(k)) groups.set(k, []);
+        groups.get(k).push(ep);
+      }
+      const keys = [...groups.keys()].sort((a, b) => a.localeCompare(b));
+      for (const k of keys) {
+        html += `<div class="groupname">${esc(k)} <span style="color:var(--border)">·</span> ${groups.get(k).length}</div>`;
+        html += groups.get(k).map(cardHTML).join("");
+      }
+    }
+    grid.innerHTML = html;
+    // wire lazy images, card clicks and reviewed toggles
+    grid.querySelectorAll(".shot.ph[data-idx]").forEach((el) => io.observe(el));
+    grid.querySelectorAll(".card").forEach((el) =>
+      el.addEventListener("click", () => {
+        const idx = +el.getAttribute("data-idx");
+        openModal(DATA[idx], VIEW.findIndex((e) => e._i === idx));
+      }));
+    grid.querySelectorAll(".rev[data-rev]").forEach((btn) =>
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const ep = DATA[btn.getAttribute("data-rev")];
+        setReviewed(ep, !isReviewed(ep));
+        render();
+      }));
+  }
+
+  // debounce the search box; other controls are instant
+  let deb;
+  function scheduleRender() { clearTimeout(deb); deb = setTimeout(render, 120); }
+
+  $("q").addEventListener("input", (e) => { state.q = e.target.value.trim().toLowerCase(); scheduleRender(); });
+  $("f-status").addEventListener("change", (e) => { state.status = e.target.value; render(); });
+  $("f-scheme").addEventListener("change", (e) => { state.scheme = e.target.value; render(); });
+  $("f-shot").addEventListener("change", (e) => { state.shot = e.target.checked; render(); });
+  $("f-issues").addEventListener("change", (e) => { state.issues = e.target.checked; render(); });
+  $("f-creds").addEventListener("change", (e) => { state.creds = e.target.checked; render(); });
+  $("sort").addEventListener("change", (e) => { state.sort = e.target.value; render(); });
+  $("groupby").addEventListener("change", (e) => { state.group = e.target.value; render(); });
+  $("groupby").value = state.group;
+  try { state.cols = localStorage.getItem("snapmap:cols") || state.cols; } catch (e) {}
+  $("cols").value = state.cols;
+  $("cols").addEventListener("change", (e) => {
+    state.cols = e.target.value;
+    try { localStorage.setItem("snapmap:cols", state.cols); } catch (e2) {}
+    render();
+  });
+  $("f-hiderev").addEventListener("change", (e) => { state.hideReviewed = e.target.checked; render(); });
+  $("keys-toggle").addEventListener("click", () => $("keyslegend").classList.toggle("open"));
+
+  // Copy the URLs of the currently filtered endpoints (in view order).
+  function fallbackCopy(text, done) {
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    try { document.execCommand("copy"); done(); } catch (e) {}
+    ta.remove();
+  }
+  $("copy-urls").addEventListener("click", () => {
+    const urls = VIEW.map((ep) => ep.url).join("\n");
+    const btn = $("copy-urls"), label = "Copy URLs";
+    const done = () => {
+      btn.textContent = "Copied " + VIEW.length;
+      setTimeout(() => { btn.textContent = label; }, 1200);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(urls).then(done, () => fallbackCopy(urls, done));
+    } else { fallbackCopy(urls, done); }
+  });
+
+  // ---- detail modal ------------------------------------------------------
+  const overlay = $("overlay"), modal = $("modal");
+  let modalEp = null, modalIndex = -1;
+
+  function kvRow(k, v) { return v ? `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>` : ""; }
+
+  function headersTable(hdrs) {
+    const keys = Object.keys(hdrs || {}).sort();
+    if (!keys.length) return `<div style="color:var(--fg-dim)">none</div>`;
+    return `<div class="hdrbox"><table class="tbl"><tbody>` +
+      keys.map((k) => `<tr><th>${esc(k)}</th><td>${esc(hdrs[k])}</td></tr>`).join("") +
+      `</tbody></table></div>`;
+  }
+
+  function secHeaderFlags(sh) {
+    const keys = Object.keys(sh || {});
+    if (!keys.length) return `<div style="color:var(--fg-dim)">n/a</div>`;
+    return `<div class="flags">` + keys.map((k) =>
+      `<span class="flag ${sh[k] ? "on" : "off"}">${esc(k)}${sh[k] ? " (set)" : " (missing)"}</span>`).join("") + `</div>`;
+  }
+
+  function credsTable(cands) {
+    if (!cands || !cands.length) return "";
+    return `<div class="msec"><h3>Default credential candidates</h3>
+      <div class="scroll"><table class="tbl"><thead><tr><th>Product</th><th>Username</th><th>Password</th></tr></thead><tbody>` +
+      cands.map((c) => `<tr><td>${esc(c.product)}</td><td>${esc(c.username)}</td><td>${esc(c.password)}</td></tr>`).join("") +
+      `</tbody></table></div></div>`;
+  }
+
+  function issueRow(iss, allowDelete, mIdx) {
+    return `<div class="issue">
+      <span class="dot sev-${esc(iss.severity)}" style="margin-top:5px"></span>
+      <div style="flex:1">
+        <div><span class="it">${esc(iss.title)}</span><span class="tag">${esc(iss.severity)}</span><span class="tag">${esc(iss.source)}</span></div>
+        ${iss.detail ? `<div class="idesc">${esc(iss.detail)}</div>` : ""}
+      </div>
+      ${allowDelete ? `<button class="del" data-mi="${mIdx}">delete</button>` : ""}
+    </div>`;
+  }
+
+  function issuesEditorHTML(ep) {
+    const auto = (ep.issues || []);
+    const manual = loadManual(ep.url);
+    const autoHTML = auto.length ? auto.map((i) => issueRow(i, false)).join("")
+      : `<div style="color:var(--fg-dim)">no automatic findings</div>`;
+    const manHTML = manual.map((i, idx) => issueRow({ ...i, source: "manual" }, true, idx)).join("");
+    const sevOpts = SEVERITIES.map((s) => `<option value="${s}">${s}</option>`).join("");
+    return `<div class="msec" id="issues-editor">
+      <h3>Issues — automatic</h3>
+      <div id="auto-issues">${autoHTML}</div>
+      <h3 style="margin-top:14px">Issues — manual</h3>
+      <div id="manual-issues">${manHTML || `<div style="color:var(--fg-dim)">none added</div>`}</div>
+      <div class="addissue">
+        <input type="text" class="title" id="mi-title" placeholder="Issue title">
+        <select id="mi-sev">${sevOpts}</select>
+        <input type="text" class="note" id="mi-note" placeholder="Note (optional)">
+        <button id="mi-add">Add issue</button>
+      </div>
+    </div>`;
+  }
+
+  function openModal(ep, idx) {
+    modalEp = ep;
+    modalIndex = (typeof idx === "number" && idx >= 0) ? idx : VIEW.findIndex((e) => e._i === ep._i);
+    const tls = ep.tls || {};
+    const redirs = (ep.redirects || []);
+    const rev = isReviewed(ep);
+    modal.innerHTML = `
+      <div class="mhead">
+        <h2><a href="${esc(ep.url)}" target="_blank" rel="noopener">${esc(ep.url)}</a></h2>
+        <div class="nav">
+          <button class="mbtn" id="mprev" title="previous (Left)">Prev</button>
+          <button class="mbtn" id="mnext" title="next (Right)">Next</button>
+          <button class="mbtn${rev ? " on" : ""}" id="mrev">${rev ? "reviewed" : "mark reviewed"}</button>
+          <button class="mbtn" id="mclose">Close</button>
+        </div>
+      </div>
+      <div class="mbody">
+        <div class="msec"><h3>Overview</h3><dl class="kv">
+          ${kvRow("Status", ep.status == null ? (ep.error || "no response") : (ep.status + " " + (ep.reason || "")))}
+          ${kvRow("Final URL", ep.final_url)}
+          ${kvRow("Title", ep.title)}
+          ${kvRow("IP:Port", ep.ip + ":" + ep.port)}
+          ${kvRow("Scheme", ep.scheme)}
+          ${kvRow("Server", ep.server)}
+          ${kvRow("Content-Type", ep.content_type)}
+          ${kvRow("Content-Length", ep.content_length)}
+          ${kvRow("Interest", ep.interest)}
+          ${redirs.length ? `<dt>Redirects</dt><dd>${redirs.map(esc).join(" → ")}</dd>` : ""}
+        </dl></div>
+
+        <div class="msec"><h3>nmap service</h3><dl class="kv">
+          ${kvRow("Service", ep.nmap_service)}
+          ${kvRow("Product", ep.nmap_product)}
+          ${kvRow("Version", ep.nmap_version)}
+          ${kvRow("Favicon hash", ep.favicon_hash)}
+          ${(!ep.nmap_service && !ep.nmap_product && ep.favicon_hash == null) ? `<dt>—</dt><dd>no data</dd>` : ""}
+        </dl></div>
+
+        ${ep.tls ? `<div class="msec"><h3>TLS</h3><dl class="kv">
+          ${kvRow("Version", tls.version)}
+          ${kvRow("Cipher", Array.isArray(tls.cipher) ? tls.cipher.join(" / ") : tls.cipher)}
+          <dt>Insecure</dt><dd>${tls.insecure ? "yes" : "no"}</dd>
+        </dl></div>` : ""}
+
+        <div class="msec"><h3>Security headers</h3>${secHeaderFlags(ep.security_headers)}</div>
+        ${credsTable(ep.cred_candidates)}
+        ${issuesEditorHTML(ep)}
+        <div class="msec"><h3>Response headers</h3>${headersTable(ep.response_headers)}</div>
+      </div>`;
+    overlay.classList.add("open");
+    document.body.style.overflow = "hidden";
+    $("mclose").addEventListener("click", closeModal);
+    $("mprev").addEventListener("click", () => navModal(-1));
+    $("mnext").addEventListener("click", () => navModal(1));
+    $("mrev").addEventListener("click", () => {
+      setReviewed(ep, !isReviewed(ep));
+      const on = isReviewed(ep);
+      $("mrev").classList.toggle("on", on);
+      $("mrev").textContent = on ? "reviewed" : "mark reviewed";
+      render();  // keep the grid underneath in sync
+    });
+    wireIssuesEditor(ep);
+  }
+
+  function navModal(delta) {
+    if (!VIEW.length || modalIndex < 0) return;
+    const ni = modalIndex + delta;
+    if (ni < 0 || ni >= VIEW.length) return;
+    openModal(VIEW[ni], ni);
+  }
+
+  function closeModal() {
+    overlay.classList.remove("open");
+    document.body.style.overflow = "";
+    modalEp = null;
+  }
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) closeModal(); });
+
+  function isTyping(e) {
+    const t = e.target;
+    return t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA");
+  }
+  document.addEventListener("keydown", (e) => {
+    const modalOpen = overlay.classList.contains("open");
+    if (e.key === "Escape") {
+      if (modalOpen) { closeModal(); return; }
+      if (state.q) { $("q").value = ""; state.q = ""; render(); }
+      return;
+    }
+    if (isTyping(e)) return;
+    if (e.key === "/") { e.preventDefault(); $("q").focus(); return; }
+    if (modalOpen && e.key === "ArrowLeft") { e.preventDefault(); navModal(-1); }
+    else if (modalOpen && e.key === "ArrowRight") { e.preventDefault(); navModal(1); }
+  });
+
+  function wireIssuesEditor(ep) {
+    const refresh = () => {
+      const manual = loadManual(ep.url);
+      const box = $("manual-issues");
+      box.innerHTML = manual.length
+        ? manual.map((i, idx) => issueRow({ ...i, source: "manual" }, true, idx)).join("")
+        : `<div style="color:var(--fg-dim)">none added</div>`;
+      box.querySelectorAll(".del[data-mi]").forEach((btn) =>
+        btn.addEventListener("click", () => {
+          const list = loadManual(ep.url);
+          list.splice(+btn.getAttribute("data-mi"), 1);
+          saveManual(ep.url, list); refresh();
+        }));
+    };
+    refresh();
+    $("mi-add").addEventListener("click", () => {
+      const title = $("mi-title").value.trim();
+      if (!title) { $("mi-title").focus(); return; }
+      const list = loadManual(ep.url);
+      list.push({
+        id: "manual-" + Date.now(), title: title,
+        severity: $("mi-sev").value, detail: $("mi-note").value.trim(), source: "manual",
+      });
+      saveManual(ep.url, list);
+      $("mi-title").value = ""; $("mi-note").value = "";
+      refresh();
+    });
+  }
+
+  // ---- recap -------------------------------------------------------------
+  function buildRecap() {
+    const counts = {}; SEVERITIES.forEach((s) => (counts[s] = 0));
+    // key issues by title so identical findings across endpoints group together
+    const byIssue = new Map();
+    for (const ep of DATA) {
+      for (const iss of allIssues(ep)) {
+        if (counts[iss.severity] != null) counts[iss.severity]++;
+        const key = iss.severity + "" + iss.title;
+        if (!byIssue.has(key)) byIssue.set(key, { title: iss.title, severity: iss.severity, eps: [] });
+        byIssue.get(key).eps.push(ep);
+      }
+    }
+    // severity cards
+    $("sevcards").innerHTML = SEVERITIES.map((s) => {
+      const col = getComputedStyle(document.documentElement).getPropertyValue("--sev-" + s);
+      return `<div class="sevcard" style="border-left-color:${col.trim()}">
+        <div class="n">${counts[s]}</div><div class="l">${s}</div></div>`;
+    }).join("");
+
+    // grouped issue → endpoints
+    const groups = [...byIssue.values()].sort((a, b) =>
+      (SEV_ORDER[b.severity] - SEV_ORDER[a.severity]) || (b.eps.length - a.eps.length));
+    if (!groups.length) { $("rgroups").innerHTML = `<div class="empty">No findings.</div>`; return; }
+    $("rgroups").innerHTML = groups.map((g) => `<details class="rgroup" open>
+      <summary><span class="dot sev-${esc(g.severity)}"></span>${esc(g.title)}
+        <span class="tag" style="border:1px solid var(--border);border-radius:4px;padding:0 5px;font-size:11px">${esc(g.severity)}</span>
+        <span class="rcount">${g.eps.length} endpoint${g.eps.length === 1 ? "" : "s"}</span></summary>
+      <ul>${g.eps.map((ep) => `<li><a href="${esc(ep.url)}" target="_blank" rel="noopener">${esc(ep.url)}</a></li>`).join("")}</ul>
+    </details>`).join("");
+  }
+
+  // ---- export ------------------------------------------------------------
+  function findingsPayload() {
+    return DATA.map((ep) => ({
+      url: ep.url, ip: ep.ip, port: ep.port, status: ep.status,
+      title: ep.title, interest: score(allIssues(ep)),
+      issues: allIssues(ep).map((i) => ({ title: i.title, severity: i.severity, detail: i.detail || "", source: i.source })),
+    }));
+  }
+  function download(name, mime, text) {
+    const blob = new Blob([text], { type: mime });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+  }
+  function exportJSON() {
+    download("snapmap_findings.json", "application/json",
+      JSON.stringify({ target: META.target, generated_at: META.generated_at, findings: findingsPayload() }, null, 2));
+  }
+  function exportMD() {
+    const p = findingsPayload();
+    let md = `# Snapmap findings — ${META.target}\n\nGenerated: ${META.generated_at}\n\n`;
+    // recap counts
+    const counts = {}; SEVERITIES.forEach((s) => (counts[s] = 0));
+    p.forEach((e) => e.issues.forEach((i) => { if (counts[i.severity] != null) counts[i.severity]++; }));
+    md += "## Summary\n\n" + SEVERITIES.map((s) => `- **${s}**: ${counts[s]}`).join("\n") + "\n\n## Endpoints\n\n";
+    for (const e of p) {
+      md += `### ${e.url}\n\n- IP: ${e.ip}:${e.port}\n- Status: ${e.status == null ? "n/a" : e.status}\n- Title: ${e.title || "—"}\n- Interest: ${e.interest}\n\n`;
+      if (e.issues.length) {
+        for (const i of e.issues) md += `  - [${i.severity}] ${i.title}${i.detail ? " — " + i.detail : ""} _(${i.source})_\n`;
+      } else { md += "  - no findings\n"; }
+      md += "\n";
+    }
+    download("snapmap_findings.md", "text/markdown", md);
+  }
+  $("exp-json").addEventListener("click", exportJSON);
+  $("exp-md").addEventListener("click", exportMD);
+
+  // ---- view switching ----------------------------------------------------
+  function showView(which) {
+    const ep = which === "endpoints";
+    $("ep-view").classList.toggle("hidden", !ep);
+    $("recap-view").classList.toggle("open", !ep);
+    $("tab-endpoints").classList.toggle("active", ep);
+    $("tab-recap").classList.toggle("active", !ep);
+    if (!ep) buildRecap();
+  }
+  $("tab-endpoints").addEventListener("click", () => showView("endpoints"));
+  $("tab-recap").addEventListener("click", () => showView("recap"));
+
+  // ---- summary bar (findings by severity, click to filter) ---------------
+  function buildSummary() {
+    const counts = {}; SEVERITIES.forEach((s) => (counts[s] = 0));
+    let total = 0;
+    for (const ep of DATA) for (const i of allIssues(ep)) {
+      if (counts[i.severity] != null) { counts[i.severity]++; total++; }
+    }
+    const bar = $("sumbar");
+    let html = `<span class="sumpill" data-sev=""><b>${total}</b>&nbsp;findings</span>`;
+    html += SEVERITIES.filter((s) => counts[s] > 0).map((s) =>
+      `<span class="sumpill" data-sev="${s}"><span class="dot sev-${s}"></span>${s}&nbsp;<b>${counts[s]}</b></span>`).join("");
+    bar.innerHTML = html;
+    bar.querySelectorAll(".sumpill").forEach((p) => p.addEventListener("click", () => {
+      const s = p.getAttribute("data-sev");
+      state.sev = (state.sev === s) ? "" : s;
+      bar.querySelectorAll(".sumpill").forEach((x) =>
+        x.classList.toggle("active", x.getAttribute("data-sev") === state.sev && state.sev !== ""));
+      render();
+    }));
+  }
+
+  // ---- boot --------------------------------------------------------------
+  buildSummary();
+  render();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.env
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Snapmap run artifacts (do not commit scan output)
+snapmap_report.html
+snapmap_results.json
+snapmap_results.csv
+nmap_scan.xml
+nmap_scan.nmap
+nmap_scan.gnmap
