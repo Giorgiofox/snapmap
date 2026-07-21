@@ -217,6 +217,7 @@
     <span>Generated <b>{{ meta.generated_at }}</b></span>
     <span>Endpoints <b>{{ meta.total }}</b></span>
     <span>Alive <b>{{ meta.alive }}</b></span>
+    {% if meta.ports %}<span>Ports <b title="{{ meta.ports }}">{{ meta.ports }}</b></span>{% endif %}
     {% if meta.tool_version %}<span>v<b>{{ meta.tool_version }}</b></span>{% endif %}
   </div>
   <div class="viewtabs">

@@ -27,6 +27,7 @@ from . import (
     report,
 )
 from .models import Endpoint, Options
+from .ports import resolve_ports
 
 SEVERITY_ORDER = ["critical", "high", "medium", "low", "info"]
 
@@ -336,6 +337,7 @@ def make_meta(target: str, opts: Options, nmap_cmd: str,
     return {
         "target": target,
         "project": opts.project or "",
+        "ports": resolve_ports(opts.ports),
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "tool_version": __version__,
         "nmap_cmd": nmap_cmd,
