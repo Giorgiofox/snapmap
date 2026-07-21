@@ -154,3 +154,11 @@ def update_db(url: str = DEFAULT_CREDS_URL, dest: Path | None = None) -> tuple[i
     _load_db.cache_clear()
     _product_index.cache_clear()
     return db_stats()
+
+
+def dump_db() -> dict[str, list[list[str]]]:
+    """Return the whole database as ``{product: [[username, password], ...]}``.
+
+    Used to embed a searchable copy of the credentials into the HTML report.
+    """
+    return {product: [[u, pw] for u, pw in pairs] for product, pairs in _load_db().items()}

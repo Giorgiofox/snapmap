@@ -16,6 +16,7 @@ from typing import Any
 
 import jinja2
 
+from .creds import dump_db as _dump_creds
 from .issues import SEVERITIES, SEVERITY_ORDER, SEVERITY_WEIGHT
 from .models import Endpoint
 
@@ -82,12 +83,14 @@ def render_html(endpoints: list[Endpoint], meta: dict) -> str:
         "order": SEVERITY_ORDER,
         "weight": SEVERITY_WEIGHT,
     }
+    creds_json = json.dumps(_dump_creds(), ensure_ascii=False).replace("<", "\\u003c")
     template = _env.get_template("report.html.j2")
     return template.render(
         data_json=data_json,
         meta=meta,
         meta_json=json.dumps(meta, ensure_ascii=False).replace("<", "\\u003c"),
         severity_json=json.dumps(severity_meta, ensure_ascii=False).replace("<", "\\u003c"),
+        creds_json=creds_json,
     )
 
 

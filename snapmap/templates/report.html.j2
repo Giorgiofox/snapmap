@@ -181,6 +181,14 @@
   .exportbar button:hover { border-color: var(--accent); }
   .hidden { display: none !important; }
 
+  /* Creds lookup view */
+  .credsbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 14px 0 16px; }
+  .credsbar input[type=text] { background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 10px; min-width: 260px; flex: 1 1 320px; }
+  .credsbar .ccount { color: var(--fg-dim); font-size: 12.5px; white-space: nowrap; }
+  .credshint { color: var(--fg-dim); }
+  #creds-results table.tbl { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; }
+
   /* Power triage: search ops, copy, reviewed state, shortcuts */
   .toolbar button.tbtn { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
     padding: 7px 11px; color: var(--fg); font-size: 12.5px; white-space: nowrap; }
@@ -223,6 +231,7 @@
   <div class="viewtabs">
     <button id="tab-endpoints" class="active">Endpoints</button>
     <button id="tab-recap">Recap</button>
+    <button id="tab-creds">Creds</button>
   </div>
   <div class="legend">
     <span class="lg"><span class="dot sev-critical"></span>critical</span>
@@ -273,11 +282,23 @@
   <div id="rgroups"></div>
 </div>
 
+<div class="recap" id="creds-view">
+  <h2>Default credentials lookup</h2>
+  <p class="credshint" id="creds-sub"></p>
+  <div class="credsbar">
+    <input type="text" id="creds-q" autocomplete="off"
+           placeholder="Search product / vendor, e.g. hp, laserjet, grafana, cisco">
+    <span class="ccount" id="creds-count"></span>
+  </div>
+  <div id="creds-results"></div>
+</div>
+
 <div class="overlay" id="overlay"><div class="modal" id="modal"></div></div>
 
 <script type="application/json" id="snapmap-data">{{ data_json|safe }}</script>
 <script type="application/json" id="snapmap-meta">{{ meta_json|safe }}</script>
 <script type="application/json" id="snapmap-sev">{{ severity_json|safe }}</script>
+<script type="application/json" id="snapmap-creds">{{ creds_json|safe }}</script>
 <script>
 "use strict";
 (function () {
@@ -288,6 +309,11 @@
   const SEV_ORDER = SEV.order;
   const SEV_WEIGHT = SEV.weight;
   const LS_KEY = "snapmap:manual:";
+  const CREDS = (function () {
+    const el = document.getElementById("snapmap-creds");
+    try { return (el && JSON.parse(el.textContent)) || {}; } catch (e) { return {}; }
+  })();
+  const CREDS_PRODUCTS = Object.keys(CREDS);
 
   // ---- helpers -----------------------------------------------------------
   const $ = (id) => document.getElementById(id);
@@ -705,6 +731,7 @@
 
         <div class="msec"><h3>Security headers</h3>${secHeaderFlags(ep.security_headers)}</div>
         ${credsTable(ep.cred_candidates)}
+        <div class="msec"><button class="mbtn" id="mcreds">Search creds DB for this device</button></div>
         ${issuesEditorHTML(ep)}
         <div class="msec"><h3>Response headers</h3>${headersTable(ep.response_headers)}</div>
       </div>`;
@@ -719,6 +746,15 @@
       $("mrev").classList.toggle("on", on);
       $("mrev").textContent = on ? "reviewed" : "mark reviewed";
       render();  // keep the grid underneath in sync
+    });
+    const mc = $("mcreds");
+    if (mc) mc.addEventListener("click", () => {
+      const term = (ep.nmap_product || (ep.server || "").split("/")[0]
+        || (ep.title || "").split(/\s+/)[0] || "").trim();
+      closeModal();
+      showView("creds");
+      $("creds-q").value = term;
+      renderCreds();
     });
     wireIssuesEditor(ep);
   }
@@ -855,15 +891,55 @@
 
   // ---- view switching ----------------------------------------------------
   function showView(which) {
-    const ep = which === "endpoints";
-    $("ep-view").classList.toggle("hidden", !ep);
-    $("recap-view").classList.toggle("open", !ep);
-    $("tab-endpoints").classList.toggle("active", ep);
-    $("tab-recap").classList.toggle("active", !ep);
-    if (!ep) buildRecap();
+    const isEp = which === "endpoints", isRecap = which === "recap", isCreds = which === "creds";
+    $("ep-view").classList.toggle("hidden", !isEp);
+    $("recap-view").classList.toggle("open", isRecap);
+    $("creds-view").classList.toggle("open", isCreds);
+    $("tab-endpoints").classList.toggle("active", isEp);
+    $("tab-recap").classList.toggle("active", isRecap);
+    $("tab-creds").classList.toggle("active", isCreds);
+    if (isRecap) buildRecap();
+    if (isCreds) $("creds-q").focus();
   }
   $("tab-endpoints").addEventListener("click", () => showView("endpoints"));
   $("tab-recap").addEventListener("click", () => showView("recap"));
+  $("tab-creds").addEventListener("click", () => showView("creds"));
+
+  // ---- creds lookup ------------------------------------------------------
+  $("creds-sub").textContent =
+    "Search the bundled DefaultCreds database (" + CREDS_PRODUCTS.length + " products).";
+
+  function renderCreds() {
+    const q = ($("creds-q").value || "").trim().toLowerCase();
+    const box = $("creds-results"), cnt = $("creds-count");
+    if (!q) {
+      box.innerHTML = `<div class="credshint">Type a product or vendor name to look up its default credentials.</div>`;
+      cnt.textContent = "";
+      return;
+    }
+    const CAP = 500;
+    const rows = []; let products = 0, truncated = false;
+    for (const p of CREDS_PRODUCTS) {
+      if (p.indexOf(q) === -1) continue;
+      products++;
+      for (const pair of CREDS[p]) {
+        if (rows.length >= CAP) { truncated = true; break; }
+        rows.push(`<tr><td>${esc(p)}</td><td>${esc(pair[0] || "<blank>")}</td><td>${esc(pair[1] || "<blank>")}</td></tr>`);
+      }
+      if (truncated) break;
+    }
+    if (!rows.length) {
+      box.innerHTML = `<div class="credshint">No products match "${esc(q)}".</div>`;
+      cnt.textContent = "0 credentials";
+      return;
+    }
+    cnt.textContent = `${rows.length}${truncated ? "+" : ""} credentials across ${products} product${products === 1 ? "" : "s"}`
+      + (truncated ? " (capped)" : "");
+    box.innerHTML = `<table class="tbl"><thead><tr><th>Product</th><th>Username</th><th>Password</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
+  }
+  let credsDeb;
+  $("creds-q").addEventListener("input", () => { clearTimeout(credsDeb); credsDeb = setTimeout(renderCreds, 120); });
+  renderCreds();
 
   // ---- summary bar (findings by severity, click to filter) ---------------
   function buildSummary() {
