@@ -165,8 +165,10 @@
   .issue .ovctl select { background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 3px 6px; font-size: 11.5px; color: var(--fg); }
   .issue .ovbtn { background: transparent; border: 1px solid var(--border); border-radius: 5px; color: var(--fg-dim); padding: 2px 8px; font-size: 11.5px; white-space: nowrap; }
   .issue .ovbtn:hover { border-color: var(--accent); color: var(--fg); }
-  .issue.dismissed { opacity: .55; }
-  .issue .it.struck { text-decoration: line-through; }
+  .issue.tested { border-color: #2ea043; background: rgba(46,160,67,.07); }
+  .issue.tested .dot { opacity: .35; }
+  .tag.tested { border-color: #2ea043; color: #6fdd8b; background: rgba(46,160,67,.15); }
+  .chip.tested { border-color: #2ea043; color: #6fdd8b; }
 
   /* Recap */
   .recap { display: none; padding: 22px 20px 60px; max-width: 1100px; margin: 0 auto; }
@@ -371,22 +373,25 @@
     saveReviewed();
   }
   // Merge auto (from data, with analyst overrides applied) + manual issues.
-  // Overridden auto issues carry {overridden, origSeverity}; dismissed ones {dismissed:true}.
+  // Overridden auto issues carry {overridden, origSeverity}; tested ones {tested:true}.
   function allIssues(ep) {
     const ov = loadOverrides(ep.url);
     const auto = (ep.issues || []).map((i) => {
       const base = { ...i, source: i.source || "auto", origSeverity: i.severity };
       const o = ov[i.id];
-      if (o === "dismissed") return { ...base, dismissed: true };
+      // "tested" (legacy value "dismissed") = analyst verified it (e.g. creds not valid):
+      // stays visible but no longer counts toward risk.
+      if (o === "tested" || o === "dismissed") return { ...base, tested: true };
       if (o && o !== base.severity) return { ...base, severity: o, overridden: true };
       return base;
     });
     const manual = loadManual(ep.url).map((i) => ({ ...i, source: "manual" }));
     return auto.concat(manual);
   }
-  // Effective issues drive scoring / dots / counts / recap: dismissed ones are excluded
+  // Effective issues drive scoring / dots / counts / recap: tested ones are excluded
   // and overridden ones already carry their adjusted severity.
-  function effectiveIssues(ep) { return allIssues(ep).filter((i) => !i.dismissed); }
+  function effectiveIssues(ep) { return allIssues(ep).filter((i) => !i.tested); }
+  function testedIssues(ep) { return allIssues(ep).filter((i) => i.tested); }
   function worstSeverity(issues) {
     let worst = null, rank = -1;
     for (const i of issues) {
@@ -429,6 +434,7 @@
     const issues = effectiveIssues(ep);
     const worst = worstSeverity(issues);
     const sc = score(issues);
+    const testedCount = testedIssues(ep).length;
     const st = ep.status;
     const camIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="12" cy="12" r="3.2"/></svg>`;
     const shot = ep.screenshot
@@ -455,6 +461,7 @@
           <span class="badge ${badgeClass(st)}">${st == null ? "—" : st}</span>
           <span>${esc(ep.ip)}:${esc(ep.port)}</span>
           <span class="chip">${esc(ep.scheme)}</span>
+          ${testedCount ? `<span class="chip tested" title="findings tested / verified (not counted in risk)">${testedCount} tested</span>` : ""}
           <button class="rev${rev ? " on" : ""}" data-rev="${ep._i}" title="mark reviewed">${rev ? "reviewed" : "mark"}</button>
         </div>
         ${chips ? `<div class="chips">${chips}</div>` : ""}
@@ -690,22 +697,23 @@
     </div>`;
   }
 
-  // An AUTO issue row with risk-override controls (downgrade severity or verify-dismiss).
+  // An AUTO issue row with risk controls: adjust severity, or mark tested/verified.
+  // A tested finding stays visible (it is not deleted) but no longer counts toward risk.
   function autoIssueRow(iss) {
     const sevSel = SEVERITIES.map((s) =>
       `<option value="${s}"${s === iss.severity ? " selected" : ""}>${s}</option>`).join("");
     let tags = `<span class="tag">${esc(iss.severity)}</span><span class="tag">auto</span>`;
-    if (iss.dismissed) tags += `<span class="tag">dismissed (verified)</span>`;
+    if (iss.tested) tags += `<span class="tag tested">tested &ndash; not exploitable</span>`;
     else if (iss.overridden) tags += `<span class="tag">${esc(iss.origSeverity)} &rarr; ${esc(iss.severity)} (verified)</span>`;
-    const controls = iss.dismissed
-      ? `<button class="ovbtn" data-restore="${esc(iss.id)}">Restore</button>`
+    const controls = iss.tested
+      ? `<button class="ovbtn" data-untest="${esc(iss.id)}">Untested</button>`
       : `<select data-ov="${esc(iss.id)}" title="adjust risk level">${sevSel}</select>`
-        + `<button class="ovbtn" data-dismiss="${esc(iss.id)}">Verified &ndash; dismiss</button>`
+        + `<button class="ovbtn" data-test="${esc(iss.id)}">Mark tested</button>`
         + (iss.overridden ? `<button class="ovbtn" data-restore="${esc(iss.id)}">Restore</button>` : "");
-    return `<div class="issue${iss.dismissed ? " dismissed" : ""}">
+    return `<div class="issue${iss.tested ? " tested" : ""}">
       <span class="dot sev-${esc(iss.severity)}" style="margin-top:5px"></span>
       <div style="flex:1">
-        <div><span class="it${iss.dismissed ? " struck" : ""}">${esc(iss.title)}</span>${tags}</div>
+        <div><span class="it">${esc(iss.title)}</span>${tags}</div>
         ${iss.detail ? `<div class="idesc">${esc(iss.detail)}</div>` : ""}
       </div>
       <div class="ovctl">${controls}</div>
@@ -865,16 +873,16 @@
           ov[sel.getAttribute("data-ov")] = sel.value;
           saveOverrides(ep.url, ov); refreshAuto(); syncViews();
         }));
-      box.querySelectorAll("[data-dismiss]").forEach((btn) =>
+      box.querySelectorAll("[data-test]").forEach((btn) =>
         btn.addEventListener("click", () => {
           const ov = loadOverrides(ep.url);
-          ov[btn.getAttribute("data-dismiss")] = "dismissed";
+          ov[btn.getAttribute("data-test")] = "tested";
           saveOverrides(ep.url, ov); refreshAuto(); syncViews();
         }));
-      box.querySelectorAll("[data-restore]").forEach((btn) =>
+      box.querySelectorAll("[data-untest],[data-restore]").forEach((btn) =>
         btn.addEventListener("click", () => {
           const ov = loadOverrides(ep.url);
-          delete ov[btn.getAttribute("data-restore")];
+          delete ov[btn.getAttribute("data-untest") || btn.getAttribute("data-restore")];
           saveOverrides(ep.url, ov); refreshAuto(); syncViews();
         }));
     };
@@ -927,16 +935,36 @@
         <div class="n">${counts[s]}</div><div class="l">${s}</div></div>`;
     }).join("");
 
-    // grouped issue → endpoints
+    // tested / verified findings (excluded from the counts above), grouped by title
+    const testedBy = new Map();
+    for (const ep of DATA) for (const iss of testedIssues(ep)) {
+      if (!testedBy.has(iss.title)) testedBy.set(iss.title, { title: iss.title, eps: [] });
+      testedBy.get(iss.title).eps.push(ep);
+    }
+
+    // grouped issue → endpoints (active)
     const groups = [...byIssue.values()].sort((a, b) =>
       (SEV_ORDER[b.severity] - SEV_ORDER[a.severity]) || (b.eps.length - a.eps.length));
-    if (!groups.length) { $("rgroups").innerHTML = `<div class="empty">No findings.</div>`; return; }
-    $("rgroups").innerHTML = groups.map((g) => `<details class="rgroup" open>
-      <summary><span class="dot sev-${esc(g.severity)}"></span>${esc(g.title)}
-        <span class="tag" style="border:1px solid var(--border);border-radius:4px;padding:0 5px;font-size:11px">${esc(g.severity)}</span>
-        <span class="rcount">${g.eps.length} endpoint${g.eps.length === 1 ? "" : "s"}</span></summary>
-      <ul>${g.eps.map((ep) => `<li><a href="${esc(ep.url)}" target="_blank" rel="noopener">${esc(ep.url)}</a></li>`).join("")}</ul>
-    </details>`).join("");
+    const activeHtml = groups.length
+      ? groups.map((g) => `<details class="rgroup" open>
+          <summary><span class="dot sev-${esc(g.severity)}"></span>${esc(g.title)}
+            <span class="tag" style="border:1px solid var(--border);border-radius:4px;padding:0 5px;font-size:11px">${esc(g.severity)}</span>
+            <span class="rcount">${g.eps.length} endpoint${g.eps.length === 1 ? "" : "s"}</span></summary>
+          <ul>${g.eps.map((ep) => `<li><a href="${esc(ep.url)}" target="_blank" rel="noopener">${esc(ep.url)}</a></li>`).join("")}</ul>
+        </details>`).join("")
+      : `<div class="empty">No active findings.</div>`;
+    let testedHtml = "";
+    const tg = [...testedBy.values()];
+    if (tg.length) {
+      testedHtml = `<h3 style="color:var(--fg-dim);margin:22px 0 8px">Tested / verified (not counted)</h3>`
+        + tg.map((g) => `<details class="rgroup">
+          <summary><span class="dot sev-info" style="opacity:.35"></span>${esc(g.title)}
+            <span class="tag tested">tested</span>
+            <span class="rcount">${g.eps.length} endpoint${g.eps.length === 1 ? "" : "s"}</span></summary>
+          <ul>${g.eps.map((ep) => `<li><a href="${esc(ep.url)}" target="_blank" rel="noopener">${esc(ep.url)}</a></li>`).join("")}</ul>
+        </details>`).join("");
+    }
+    $("rgroups").innerHTML = activeHtml + testedHtml;
   }
 
   // ---- export ------------------------------------------------------------
@@ -944,7 +972,7 @@
     return DATA.map((ep) => ({
       url: ep.url, ip: ep.ip, port: ep.port, status: ep.status,
       title: ep.title, interest: score(effectiveIssues(ep)),
-      issues: effectiveIssues(ep).map((i) => ({ title: i.title, severity: i.severity, detail: i.detail || "", source: i.source })),
+      issues: allIssues(ep).map((i) => ({ title: i.title, severity: i.severity, detail: i.detail || "", source: i.source, tested: !!i.tested })),
     }));
   }
   function download(name, mime, text) {
@@ -963,12 +991,12 @@
     let md = `# Snapmap findings — ${META.target}\n\nGenerated: ${META.generated_at}\n\n`;
     // recap counts
     const counts = {}; SEVERITIES.forEach((s) => (counts[s] = 0));
-    p.forEach((e) => e.issues.forEach((i) => { if (counts[i.severity] != null) counts[i.severity]++; }));
+    p.forEach((e) => e.issues.forEach((i) => { if (!i.tested && counts[i.severity] != null) counts[i.severity]++; }));
     md += "## Summary\n\n" + SEVERITIES.map((s) => `- **${s}**: ${counts[s]}`).join("\n") + "\n\n## Endpoints\n\n";
     for (const e of p) {
       md += `### ${e.url}\n\n- IP: ${e.ip}:${e.port}\n- Status: ${e.status == null ? "n/a" : e.status}\n- Title: ${e.title || "—"}\n- Interest: ${e.interest}\n\n`;
       if (e.issues.length) {
-        for (const i of e.issues) md += `  - [${i.severity}] ${i.title}${i.detail ? " — " + i.detail : ""} _(${i.source})_\n`;
+        for (const i of e.issues) md += `  - [${i.severity}] ${i.title}${i.tested ? " (tested — not counted)" : ""}${i.detail ? " — " + i.detail : ""} _(${i.source})_\n`;
       } else { md += "  - no findings\n"; }
       md += "\n";
     }
