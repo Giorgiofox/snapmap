@@ -157,7 +157,7 @@ class Options:
 
     # report
     project: Optional[str] = None  # if set, outputs go into a folder named after it
-    group_by: str = "host"  # host | subnet | none
+    group_by: str = "none"  # host | subnet | none
     report_all: bool = False  # include non-responsive endpoints in the HTML report
     output: str = "snapmap_report.html"
     json_out: Optional[str] = None

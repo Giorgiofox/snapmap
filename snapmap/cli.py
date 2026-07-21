@@ -121,7 +121,7 @@ def _add_common(p: argparse.ArgumentParser) -> None:
     out.add_argument("--csv", dest="csv_out", metavar="FILE",
                      help="also write a CSV export")
     out.add_argument("--group-by", choices=["host", "subnet", "none"],
-                     default="host", help="default report grouping (default: host)")
+                     default="none", help="default report grouping (default: none)")
     out.add_argument("--report-all", action="store_true",
                      help="include non-responsive endpoints in the HTML report "
                           "(default: only endpoints that returned an HTTP response)")
