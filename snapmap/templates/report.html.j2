@@ -199,6 +199,8 @@
   .rev:hover { border-color: var(--accent); color: var(--fg); }
   .rev.on { background: rgba(46,160,67,.18); border-color: #2ea043; color: #6fdd8b; }
   .metarow .rev { margin-left: auto; }
+  .card .dupes { font-size: 11px; color: var(--fg-dim); }
+  .card .dupes b { color: var(--fg); font-weight: 700; }
   .mhead .nav { display: flex; gap: 6px; flex: none; }
   .mhead .mbtn { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
     padding: 4px 10px; font-size: 13px; color: var(--fg); }
@@ -240,10 +242,12 @@
     <label class="chk"><input type="checkbox" id="f-issues"> issues</label>
     <label class="chk"><input type="checkbox" id="f-creds"> default-creds</label>
     <label class="chk"><input type="checkbox" id="f-hiderev"> hide reviewed</label>
+    <label class="chk"><input type="checkbox" id="f-collapse" checked> collapse dupes</label>
     <span class="sep">|</span>
     <select id="sort"><option value="interest">Sort: interest ↓</option><option value="status">Sort: status</option><option value="url">Sort: url</option></select>
     <select id="groupby"><option value="host">Group: host</option><option value="subnet">Group: subnet</option><option value="none">Group: none</option></select>
     <select id="cols" title="Columns / screenshot size"><option value="auto">Cols: auto</option><option value="6">Cols: 6</option><option value="4">Cols: 4</option><option value="2">Cols: 2</option><option value="1">Cols: 1</option></select>
+    <button class="tbtn" id="mosaic-btn" title="flatten to an N-per-row mosaic (ignores grouping)">Mosaic</button>
     <button class="tbtn" id="copy-urls">Copy URLs</button>
     <span class="keys" id="keys-toggle">keys</span>
     <span class="count" id="count"></span>
@@ -374,6 +378,10 @@
       : `<div class="shot ph">${camIcon}<span>no screenshot</span></div>`;
     const chips = (ep.technologies || []).slice(0, 6)
       .map((t) => `<span class="chip">${esc(t)}</span>`).join("");
+    const dupes = (state.collapse && ep._dupes && ep._dupes.length) ? ep._dupes : [];
+    const dupHTML = dupes.length
+      ? `<div class="dupes"><b>+${dupes.length}</b> ports: ${dupes.map((d) => esc(String(d.port))).join(", ")}</div>`
+      : "";
     const rev = isReviewed(ep);
     return `<div class="card${rev ? " reviewed" : ""}" data-idx="${ep._i}">
       ${shot}
@@ -392,6 +400,7 @@
           <button class="rev${rev ? " on" : ""}" data-rev="${ep._i}" title="mark reviewed">${rev ? "reviewed" : "mark"}</button>
         </div>
         ${chips ? `<div class="chips">${chips}</div>` : ""}
+        ${dupHTML}
       </div>
     </div>`;
   }
@@ -400,7 +409,7 @@
   const state = {
     q: "", status: "", scheme: "", shot: false, issues: false, creds: false, sev: "",
     hideReviewed: false, sort: "interest", group: (META.group_by || "host"),
-    cols: "auto",
+    cols: "auto", collapse: true,
   };
   let VIEW = [];  // endpoints currently shown, in order (modal prev/next + copy urls)
 
@@ -461,24 +470,44 @@
     return score(allIssues(b)) - score(allIssues(a)) || a._i - b._i;
   }
 
+  // Duplicate signature: same host + same page => same visual. Endpoints that share
+  // it (typically the same site on :80 and :443) collapse into one representative.
+  function dupSig(ep) {
+    return [ep.ip, ep.status, ep.title, ep.content_length, ep.server,
+      (ep.technologies || []).slice().sort().join(",")].join("|");
+  }
+  // Reduce sorted rows to one representative per (ip+sig); siblings attach as _dupes.
+  function collapseRows(rows) {
+    const byKey = new Map();
+    const reps = [];
+    for (const ep of rows) {
+      const k = dupSig(ep);
+      if (!byKey.has(k)) { ep._dupes = []; byKey.set(k, ep); reps.push(ep); }
+      else { byKey.get(k)._dupes.push(ep); }
+    }
+    return reps;
+  }
+
   function render() {
     const grid = $("grid");
     grid.style.gridTemplateColumns =
       state.cols === "auto" ? "" : `repeat(${state.cols}, minmax(0, 1fr))`;
     const pq = parseQuery(state.q || "");
     const rows = DATA.filter((ep) => passes(ep, pq)).sort(sortFn);
-    VIEW = rows;
-    const revCount = rows.reduce((n, ep) => n + (isReviewed(ep) ? 1 : 0), 0);
-    $("count").textContent =
-      `${rows.length} / ${DATA.length} endpoints · ${revCount} reviewed`;
-    if (!rows.length) { grid.innerHTML = `<div class="empty">No endpoints match the filters.</div>`; return; }
+    const display = state.collapse ? collapseRows(rows) : rows;
+    VIEW = display;
+    const revCount = display.reduce((n, ep) => n + (isReviewed(ep) ? 1 : 0), 0);
+    $("count").textContent = state.collapse
+      ? `${display.length} shown / ${DATA.length} endpoints · ${revCount} reviewed`
+      : `${display.length} / ${DATA.length} endpoints · ${revCount} reviewed`;
+    if (!display.length) { grid.innerHTML = `<div class="empty">No endpoints match the filters.</div>`; return; }
 
     let html = "";
     if (state.group === "none") {
-      html = rows.map(cardHTML).join("");
+      html = display.map(cardHTML).join("");
     } else {
       const groups = new Map();
-      for (const ep of rows) {
+      for (const ep of display) {
         const k = groupKey(ep, state.group);
         if (!groups.has(k)) groups.set(k, []);
         groups.get(k).push(ep);
@@ -527,6 +556,15 @@
     render();
   });
   $("f-hiderev").addEventListener("change", (e) => { state.hideReviewed = e.target.checked; render(); });
+  $("f-collapse").addEventListener("change", (e) => { state.collapse = e.target.checked; render(); });
+  $("mosaic-btn").addEventListener("click", () => {
+    state.group = "none"; $("groupby").value = "none";
+    if (state.cols === "auto") {
+      state.cols = "4"; $("cols").value = "4";
+      try { localStorage.setItem("snapmap:cols", "4"); } catch (e) {}
+    }
+    render();
+  });
   $("keys-toggle").addEventListener("click", () => $("keyslegend").classList.toggle("open"));
 
   // Copy the URLs of the currently filtered endpoints (in view order).
@@ -538,10 +576,15 @@
     ta.remove();
   }
   $("copy-urls").addEventListener("click", () => {
-    const urls = VIEW.map((ep) => ep.url).join("\n");
+    const list = [];
+    VIEW.forEach((ep) => {
+      list.push(ep.url);
+      if (ep._dupes) ep._dupes.forEach((d) => list.push(d.url));
+    });
+    const urls = list.join("\n");
     const btn = $("copy-urls"), label = "Copy URLs";
     const done = () => {
-      btn.textContent = "Copied " + VIEW.length;
+      btn.textContent = "Copied " + list.length;
       setTimeout(() => { btn.textContent = label; }, 1200);
     };
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -639,6 +682,11 @@
           ${kvRow("Interest", ep.interest)}
           ${redirs.length ? `<dt>Redirects</dt><dd>${redirs.map(esc).join(" → ")}</dd>` : ""}
         </dl></div>
+
+        ${(state.collapse && ep._dupes && ep._dupes.length) ? `<div class="msec"><h3>Also served on</h3>
+          <ul style="margin:0;padding-left:18px;font-size:13px">` +
+          ep._dupes.map((d) => `<li><a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.url)}</a></li>`).join("") +
+          `</ul></div>` : ""}
 
         <div class="msec"><h3>nmap service</h3><dl class="kv">
           ${kvRow("Service", ep.nmap_service)}

@@ -71,11 +71,11 @@ async def capture_all(endpoints: list[Endpoint], opts: Options, log=print) -> No
                     # let late XHR / client-side painting settle to avoid blank captures
                     try:
                         await page.wait_for_load_state(
-                            "networkidle", timeout=min(5000, opts.screenshot_timeout)
+                            "networkidle", timeout=min(6000, opts.screenshot_timeout)
                         )
                     except PlaywrightTimeout:
                         pass
-                    await page.wait_for_timeout(opts.screenshot_delay or 600)
+                    await page.wait_for_timeout(opts.screenshot_delay or 800)
                     png = await page.screenshot(
                         full_page=opts.full_page, timeout=opts.screenshot_timeout
                     )
