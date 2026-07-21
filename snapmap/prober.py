@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import html
 import re
 import socket
 import ssl
@@ -46,7 +47,7 @@ def _extract_title(body: bytes) -> str:
     m = _TITLE_RE.search(body)
     if not m:
         return ""
-    raw = m.group(1).decode("utf-8", errors="replace")
+    raw = html.unescape(m.group(1).decode("utf-8", errors="replace"))
     return _WS_RE.sub(" ", raw).strip()
 
 

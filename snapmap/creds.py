@@ -59,6 +59,29 @@ def _product_index() -> list[str]:
     return sorted(_load_db().keys(), key=len, reverse=True)
 
 
+# High-confidence vendor aliases: a product/brand often shows up under a marketing
+# name in fingerprints (e.g. "HP LaserJet") but under a vendor name in the database
+# (e.g. "Hewlett-Packard"). Each entry maps a signal regex to the db product keys to
+# propose. This also covers vendors whose db key is too short (<3 chars) to match
+# generically, like "hp".
+_VENDOR_ALIASES: list[tuple[str, list[str]]] = [
+    (r"\bhp\b|hewlett|laserjet|officejet|deskjet|jetdirect|chaisoe", ["hewlett-packard", "hp"]),
+    (r"mikrotik|routeros", ["mikrotik"]),
+    (r"ubiquiti|unifi|\bubnt\b", ["ubiquiti"]),
+    (r"fortinet|fortigate|fortios", ["fortinet"]),
+    (r"\bcisco\b", ["cisco"]),
+    (r"hikvision", ["hikvision"]),
+    (r"\bdahua\b", ["dahua"]),
+]
+
+
+def _add_product(out, seen, db, key, max_per_product) -> None:
+    if key in db and key not in seen:
+        seen.add(key)
+        for user, pw in db[key][:max_per_product]:
+            out.append(CredCandidate(product=key, username=user, password=pw))
+
+
 def match_products(
     *signals: str,
     max_products: int = 3,
@@ -74,15 +97,36 @@ def match_products(
         return []
     out: list[CredCandidate] = []
     seen: set[str] = set()
+    # high-confidence vendor aliases first (e.g. "HP LaserJet" -> Hewlett-Packard/HP)
+    for pattern, keys in _VENDOR_ALIASES:
+        if re.search(pattern, hay):
+            for key in keys:
+                _add_product(out, seen, db, key, max_per_product)
+    # then generic product-name matching to fill the remaining slots
     for product in _product_index():
+        if len(seen) >= max_products:
+            break
         if len(product) < 3 or product in seen:
             continue
         if re.search(r"(?<![a-z0-9])" + re.escape(product) + r"(?![a-z0-9])", hay):
-            seen.add(product)
-            for user, pw in db[product][:max_per_product]:
+            _add_product(out, seen, db, product, max_per_product)
+    return out
+
+
+def search(query: str, limit: int = 300) -> list[CredCandidate]:
+    """Return every credential pair whose product name contains ``query`` (case-
+    insensitive substring). Powers the ``snapmap creds`` lookup command."""
+    db = _load_db()
+    q = (query or "").strip().lower()
+    if not q or not db:
+        return []
+    out: list[CredCandidate] = []
+    for product in sorted(db):
+        if q in product:
+            for user, pw in db[product]:
                 out.append(CredCandidate(product=product, username=user, password=pw))
-            if len(seen) >= max_products:
-                break
+                if len(out) >= limit:
+                    return out
     return out
 
 

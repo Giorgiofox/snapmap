@@ -205,6 +205,11 @@ def build_parser() -> argparse.ArgumentParser:
                          formatter_class=ColorHelpFormatter)
     upd.add_argument("--url", help=f"source URL (default: {creds.DEFAULT_CREDS_URL})")
 
+    crd = sub.add_parser("creds", help="search the bundled default-credentials database",
+                         formatter_class=ColorHelpFormatter)
+    crd.add_argument("query", metavar="QUERY",
+                     help="product/vendor keyword, e.g. 'hp', 'laserjet', 'grafana'")
+
     return parser
 
 
@@ -440,6 +445,20 @@ def cmd_update_creds(args: argparse.Namespace, log) -> int:
     return 0
 
 
+def cmd_creds(args: argparse.Namespace, log) -> int:
+    results = creds.search(args.query)
+    if not results:
+        log(f"no default credentials found for '{args.query}'", error=True)
+        return 1
+    n_products = len({c.product for c in results})
+    print(f"{'PRODUCT':32} {'USERNAME':24} PASSWORD")
+    print(f"{'-' * 32} {'-' * 24} {'-' * 12}")
+    for c in results:
+        print(f"{c.product[:31]:32} {(c.username or '<blank>')[:23]:24} {c.password or '<blank>'}")
+    log(f"{len(results)} credential(s) across {n_products} product(s)")
+    return 0
+
+
 # --------------------------------------------------------------------------- #
 # entry point
 # --------------------------------------------------------------------------- #
@@ -454,6 +473,8 @@ def main(argv=None) -> int:
         return cmd_report(args, log)
     if args.command == "update-creds":
         return cmd_update_creds(args, log)
+    if args.command == "creds":
+        return cmd_creds(args, log)
 
     parser.print_help(sys.stderr)
     return 2
