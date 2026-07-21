@@ -9,6 +9,18 @@ client-side search, filtering, grouping, a per-endpoint issue editor and a findi
 recap. It is a spiritual rewrite of [aquatone](https://github.com/michenriksen/aquatone),
 reworked around nmap and a single shareable page.
 
+## Screenshots
+
+Everything below is one self-contained HTML file (data is synthetic).
+
+| Endpoints (mosaic view) | Findings recap |
+| --- | --- |
+| ![Endpoints grid](docs/img/grid.png) | ![Findings recap](docs/img/recap.png) |
+
+| Default-credentials lookup | Endpoint detail |
+| --- | --- |
+| ![Credentials lookup](docs/img/creds.png) | ![Endpoint detail](docs/img/modal.png) |
+
 ## Why a rewrite
 
 | | aquatone | Snapmap |
@@ -105,14 +117,25 @@ snapmap --help
 
 ```bash
 # Fast sweep of a subnet into a project folder (nmap + screenshots + report + json/csv)
-snapmap scan 10.0.0.0/24 --project MinneapolisHQ
+snapmap scan 10.0.0.0/24 --project AcmeCorp
+
+# A quick, focused sweep: a small port set, fast mode (skip nmap version detection)
+snapmap scan 10.0.0.0/24 --ports 80,443,8080,8443 --fast --project AcmeCorp
 
 # Whole /22 across the web port list, skipping host discovery
-snapmap scan 10.180.0.0/22 -Pn --ports web --project ClientX
+snapmap scan 10.10.0.0/22 -Pn --ports web --project ClientX
+
+# Behind a SYN-proxy / captive appliance (e.g. Zscaler, Meraki) where every port
+# looks open: skip nmap and probe the IP x port grid directly over HTTP
+snapmap scan 10.10.0.0/24 --direct --ports web --project ClientX
 
 # Ingest an existing nmap/masscan XML (from a file or stdin)
 snapmap report --nmap scan.xml -o report.html
 cat scan.xml | snapmap report --project OldScan
+
+# Look up default credentials for a product, from the terminal
+snapmap creds laserjet
+snapmap creds grafana
 
 # Refresh the bundled default-credentials database
 snapmap update-creds
@@ -126,10 +149,11 @@ colorized option reference.
 `--project NAME` (`-p`) routes every output into a folder named `NAME/`:
 
 ```
-MinneapolisHQ/
+AcmeCorp/
   snapmap_report.html     single self-contained report
   snapmap_results.json    machine-readable results (no screenshots)
   snapmap_results.csv     spreadsheet-friendly summary
+  screenshots/            one PNG per responsive endpoint
   nmap_scan.xml           raw nmap output (XML)
   nmap_scan.nmap          raw nmap output (human-readable)
   nmap_scan.gnmap         raw nmap output (greppable)
@@ -152,16 +176,23 @@ This keeps engagements spanning several subnets or configurations tidy and easy 
 The report is a single file you can email, archive or open offline. Everything is
 client-side:
 
-- **Toolbar** — full-text search plus filters for status class, scheme, screenshot
-  presence, findings and default-credential candidates; sorting; grouping by host,
+- **Toolbar** — full-text search with operators (`status:` `scheme:` `port:` `ip:`
+  `tech:` `has:creds|issues|shot|reviewed`), filters, sorting, and grouping by host,
   subnet or none. A severity summary bar doubles as a one-click filter.
+- **Layout** — a **Cols** selector (6/4/2/1) and a one-click **Mosaic** button for a
+  flat N-per-row grid regardless of IP. Identical pages on different ports of the same
+  host are **collapsed** into one card (with a `+N ports` badge) so 80/443 duplicates
+  do not clutter the view.
 - **Card** — screenshot thumbnail (lazy-loaded), title, URL, status badge, IP:port,
-  technology chips, worst-severity indicator and interest score.
+  technology chips, worst-severity indicator, interest score, and a "reviewed" toggle
+  (persisted in `localStorage`) for triage.
 - **Detail modal** — overview, nmap service/product/version, TLS, security headers,
   favicon hash, response headers, the default-credential candidates, and an issue
-  editor. Manual issues are saved in the browser's `localStorage` per endpoint.
+  editor. Keyboard-friendly (`/` search, arrows to page between endpoints, `Esc`).
 - **Recap** — findings aggregated by severity and grouped by issue with the affected
   endpoints, plus one-click export of the findings as JSON or Markdown.
+- **Creds** — a searchable copy of the default-credentials database embedded in the
+  report, so you can look up a product's default logins without leaving the page.
 
 ## Default credentials
 
@@ -170,6 +201,10 @@ derived from [DefaultCreds-cheat-sheet](https://github.com/ihebski/DefaultCreds-
 (which itself aggregates changeme, routersploit and SecLists). When a product is
 fingerprinted (from the nmap product, Server header, page title or detected
 technologies), matching default credentials are **proposed** in the report.
+
+You can also search the database by hand — from the terminal with `snapmap creds <query>`,
+or inside the report via the **Creds** tab (and the "Search creds DB for this device"
+link in each endpoint's detail modal).
 
 This is passive: Snapmap never attempts authentication. Update the database at any time
 with `snapmap update-creds`.
