@@ -30,7 +30,10 @@ async def capture_all(endpoints: list[Endpoint], opts: Options, log=print) -> No
         return
 
     try:
-        from playwright.async_api import async_playwright
+        from playwright.async_api import (
+            TimeoutError as PlaywrightTimeout,
+            async_playwright,
+        )
     except ImportError:
         log(_INSTALL_HINT)
         return
@@ -55,14 +58,27 @@ async def capture_all(endpoints: list[Endpoint], opts: Options, log=print) -> No
                 )
                 try:
                     page = await context.new_page()
-                    await page.goto(
-                        ep.final_url or ep.url,
-                        wait_until="domcontentloaded",
-                        timeout=opts.screenshot_timeout,
+                    try:
+                        # 'load' waits for sub-resources; 'domcontentloaded' fires too
+                        # early and often paints blank for JS-rendered / redirecting pages.
+                        await page.goto(
+                            ep.final_url or ep.url,
+                            wait_until="load",
+                            timeout=opts.screenshot_timeout,
+                        )
+                    except PlaywrightTimeout:
+                        pass  # slow page: capture whatever has rendered so far
+                    # let late XHR / client-side painting settle to avoid blank captures
+                    try:
+                        await page.wait_for_load_state(
+                            "networkidle", timeout=min(5000, opts.screenshot_timeout)
+                        )
+                    except PlaywrightTimeout:
+                        pass
+                    await page.wait_for_timeout(opts.screenshot_delay or 600)
+                    png = await page.screenshot(
+                        full_page=opts.full_page, timeout=opts.screenshot_timeout
                     )
-                    if opts.screenshot_delay:
-                        await page.wait_for_timeout(opts.screenshot_delay)
-                    png = await page.screenshot(full_page=opts.full_page)
                     ep.screenshot = base64.b64encode(png).decode("ascii")
                 except Exception as exc:
                     log(f"screenshot failed for {ep.url}: {exc}")

@@ -160,7 +160,10 @@ def save_screenshots(endpoints: list[Endpoint], directory: str) -> int:
             continue
         if written == 0:
             os.makedirs(directory, exist_ok=True)
-        name = re.sub(r"[^A-Za-z0-9._-]+", "_", ep.url).strip("_")[:120] or "endpoint"
+        # name by scheme_ip_port so it is unique per endpoint (URLs with a trailing
+        # slash would otherwise collide and overwrite each other)
+        raw = f"{ep.scheme}_{ep.ip}_{ep.port}"
+        name = re.sub(r"[^A-Za-z0-9._-]+", "_", raw).strip("_")[:120] or "endpoint"
         try:
             with open(os.path.join(directory, f"{name}.png"), "wb") as fh:
                 fh.write(base64.b64decode(ep.screenshot))
