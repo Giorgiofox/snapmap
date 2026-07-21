@@ -160,6 +160,13 @@
   .addissue input.title { flex: 1 1 180px; }
   .addissue input.note { flex: 2 1 220px; }
   .addissue button { background: var(--accent2); border: 1px solid var(--accent2); color: #fff; border-radius: 6px; padding: 6px 14px; font-weight: 600; }
+  /* Per-issue risk override controls */
+  .issue .ovctl { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+  .issue .ovctl select { background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 3px 6px; font-size: 11.5px; color: var(--fg); }
+  .issue .ovbtn { background: transparent; border: 1px solid var(--border); border-radius: 5px; color: var(--fg-dim); padding: 2px 8px; font-size: 11.5px; white-space: nowrap; }
+  .issue .ovbtn:hover { border-color: var(--accent); color: var(--fg); }
+  .issue.dismissed { opacity: .55; }
+  .issue .it.struck { text-decoration: line-through; }
 
   /* Recap */
   .recap { display: none; padding: 22px 20px 60px; max-width: 1100px; margin: 0 auto; }
@@ -336,6 +343,19 @@
   function saveManual(url, list) {
     try { localStorage.setItem(LS_KEY + url, JSON.stringify(list)); } catch (e) {}
   }
+  // Per-endpoint risk overrides for AUTO issues, keyed by issue id ->
+  // "dismissed" | a severity. Lets the analyst lower/clear a finding after verifying it.
+  const OVERRIDE_KEY = "snapmap:override:";
+  function loadOverrides(url) {
+    try { return JSON.parse(localStorage.getItem(OVERRIDE_KEY + url) || "{}"); }
+    catch (e) { return {}; }
+  }
+  function saveOverrides(url, obj) {
+    try {
+      if (obj && Object.keys(obj).length) localStorage.setItem(OVERRIDE_KEY + url, JSON.stringify(obj));
+      else localStorage.removeItem(OVERRIDE_KEY + url);
+    } catch (e) {}
+  }
   // Reviewed triage state: one JSON array of URLs, cached in a Set for the session.
   const REVIEW_KEY = "snapmap:reviewed";
   function loadReviewed() {
@@ -350,12 +370,23 @@
     if (on) reviewed.add(ep.url); else reviewed.delete(ep.url);
     saveReviewed();
   }
-  // Merge auto (from data) + manual (from localStorage) issues for an endpoint.
+  // Merge auto (from data, with analyst overrides applied) + manual issues.
+  // Overridden auto issues carry {overridden, origSeverity}; dismissed ones {dismissed:true}.
   function allIssues(ep) {
-    const auto = (ep.issues || []).map((i) => ({ ...i, source: i.source || "auto" }));
+    const ov = loadOverrides(ep.url);
+    const auto = (ep.issues || []).map((i) => {
+      const base = { ...i, source: i.source || "auto", origSeverity: i.severity };
+      const o = ov[i.id];
+      if (o === "dismissed") return { ...base, dismissed: true };
+      if (o && o !== base.severity) return { ...base, severity: o, overridden: true };
+      return base;
+    });
     const manual = loadManual(ep.url).map((i) => ({ ...i, source: "manual" }));
     return auto.concat(manual);
   }
+  // Effective issues drive scoring / dots / counts / recap: dismissed ones are excluded
+  // and overridden ones already carry their adjusted severity.
+  function effectiveIssues(ep) { return allIssues(ep).filter((i) => !i.dismissed); }
   function worstSeverity(issues) {
     let worst = null, rank = -1;
     for (const i of issues) {
@@ -395,7 +426,7 @@
 
   // ---- card rendering ----------------------------------------------------
   function cardHTML(ep) {
-    const issues = allIssues(ep);
+    const issues = effectiveIssues(ep);
     const worst = worstSeverity(issues);
     const sc = score(issues);
     const st = ep.status;
@@ -472,7 +503,7 @@
     }
     for (const h of o.has) {
       if (h === "creds" && !(ep.cred_candidates && ep.cred_candidates.length)) return false;
-      if (h === "issues" && allIssues(ep).length === 0) return false;
+      if (h === "issues" && effectiveIssues(ep).length === 0) return false;
       if (h === "shot" && !ep.screenshot) return false;
       if (h === "reviewed" && !isReviewed(ep)) return false;
     }
@@ -483,9 +514,9 @@
     }
     if (state.scheme && ep.scheme !== state.scheme) return false;
     if (state.shot && !ep.screenshot) return false;
-    if (state.issues && allIssues(ep).length === 0) return false;
+    if (state.issues && effectiveIssues(ep).length === 0) return false;
     if (state.creds && (!ep.cred_candidates || ep.cred_candidates.length === 0)) return false;
-    if (state.sev && !allIssues(ep).some((i) => i.severity === state.sev)) return false;
+    if (state.sev && !effectiveIssues(ep).some((i) => i.severity === state.sev)) return false;
     if (state.hideReviewed && isReviewed(ep)) return false;
     return true;
   }
@@ -493,8 +524,8 @@
   function sortFn(a, b) {
     if (state.sort === "url") return String(a.url).localeCompare(b.url);
     if (state.sort === "status") return (a.status || 0) - (b.status || 0) || a._i - b._i;
-    // interest desc (uses merged score so manual issues count)
-    return score(allIssues(b)) - score(allIssues(a)) || a._i - b._i;
+    // interest desc (effective score: overrides + manual issues count, dismissed don't)
+    return score(effectiveIssues(b)) - score(effectiveIssues(a)) || a._i - b._i;
   }
 
   // Duplicate signature: same host + same page => same visual. Endpoints that share
@@ -659,16 +690,41 @@
     </div>`;
   }
 
-  function issuesEditorHTML(ep) {
-    const auto = (ep.issues || []);
-    const manual = loadManual(ep.url);
-    const autoHTML = auto.length ? auto.map((i) => issueRow(i, false)).join("")
+  // An AUTO issue row with risk-override controls (downgrade severity or verify-dismiss).
+  function autoIssueRow(iss) {
+    const sevSel = SEVERITIES.map((s) =>
+      `<option value="${s}"${s === iss.severity ? " selected" : ""}>${s}</option>`).join("");
+    let tags = `<span class="tag">${esc(iss.severity)}</span><span class="tag">auto</span>`;
+    if (iss.dismissed) tags += `<span class="tag">dismissed (verified)</span>`;
+    else if (iss.overridden) tags += `<span class="tag">${esc(iss.origSeverity)} &rarr; ${esc(iss.severity)} (verified)</span>`;
+    const controls = iss.dismissed
+      ? `<button class="ovbtn" data-restore="${esc(iss.id)}">Restore</button>`
+      : `<select data-ov="${esc(iss.id)}" title="adjust risk level">${sevSel}</select>`
+        + `<button class="ovbtn" data-dismiss="${esc(iss.id)}">Verified &ndash; dismiss</button>`
+        + (iss.overridden ? `<button class="ovbtn" data-restore="${esc(iss.id)}">Restore</button>` : "");
+    return `<div class="issue${iss.dismissed ? " dismissed" : ""}">
+      <span class="dot sev-${esc(iss.severity)}" style="margin-top:5px"></span>
+      <div style="flex:1">
+        <div><span class="it${iss.dismissed ? " struck" : ""}">${esc(iss.title)}</span>${tags}</div>
+        ${iss.detail ? `<div class="idesc">${esc(iss.detail)}</div>` : ""}
+      </div>
+      <div class="ovctl">${controls}</div>
+    </div>`;
+  }
+
+  function autoIssuesHTML(ep) {
+    const auto = allIssues(ep).filter((i) => i.source === "auto");
+    return auto.length ? auto.map(autoIssueRow).join("")
       : `<div style="color:var(--fg-dim)">no automatic findings</div>`;
+  }
+
+  function issuesEditorHTML(ep) {
+    const manual = loadManual(ep.url);
     const manHTML = manual.map((i, idx) => issueRow({ ...i, source: "manual" }, true, idx)).join("");
     const sevOpts = SEVERITIES.map((s) => `<option value="${s}">${s}</option>`).join("");
     return `<div class="msec" id="issues-editor">
       <h3>Issues — automatic</h3>
-      <div id="auto-issues">${autoHTML}</div>
+      <div id="auto-issues">${autoIssuesHTML(ep)}</div>
       <h3 style="margin-top:14px">Issues — manual</h3>
       <div id="manual-issues">${manHTML || `<div style="color:var(--fg-dim)">none added</div>`}</div>
       <div class="addissue">
@@ -706,7 +762,7 @@
           ${kvRow("Server", ep.server)}
           ${kvRow("Content-Type", ep.content_type)}
           ${kvRow("Content-Length", ep.content_length)}
-          ${kvRow("Interest", ep.interest)}
+          <dt>Interest</dt><dd id="m-interest">${score(effectiveIssues(ep))}</dd>
           ${redirs.length ? `<dt>Redirects</dt><dd>${redirs.map(esc).join(" → ")}</dd>` : ""}
         </dl></div>
 
@@ -791,7 +847,38 @@
   });
 
   function wireIssuesEditor(ep) {
-    const refresh = () => {
+    // keep the grid card (dot + interest), the summary bar and the recap in sync live
+    const syncViews = () => {
+      render();
+      buildSummary();
+      const mi = $("m-interest");
+      if (mi) mi.textContent = score(effectiveIssues(ep));
+      if ($("recap-view").classList.contains("open")) buildRecap();
+    };
+    const refreshAuto = () => {
+      const box = $("auto-issues");
+      if (!box) return;
+      box.innerHTML = autoIssuesHTML(ep);
+      box.querySelectorAll("select[data-ov]").forEach((sel) =>
+        sel.addEventListener("change", () => {
+          const ov = loadOverrides(ep.url);
+          ov[sel.getAttribute("data-ov")] = sel.value;
+          saveOverrides(ep.url, ov); refreshAuto(); syncViews();
+        }));
+      box.querySelectorAll("[data-dismiss]").forEach((btn) =>
+        btn.addEventListener("click", () => {
+          const ov = loadOverrides(ep.url);
+          ov[btn.getAttribute("data-dismiss")] = "dismissed";
+          saveOverrides(ep.url, ov); refreshAuto(); syncViews();
+        }));
+      box.querySelectorAll("[data-restore]").forEach((btn) =>
+        btn.addEventListener("click", () => {
+          const ov = loadOverrides(ep.url);
+          delete ov[btn.getAttribute("data-restore")];
+          saveOverrides(ep.url, ov); refreshAuto(); syncViews();
+        }));
+    };
+    const refreshManual = () => {
       const manual = loadManual(ep.url);
       const box = $("manual-issues");
       box.innerHTML = manual.length
@@ -801,10 +888,11 @@
         btn.addEventListener("click", () => {
           const list = loadManual(ep.url);
           list.splice(+btn.getAttribute("data-mi"), 1);
-          saveManual(ep.url, list); refresh();
+          saveManual(ep.url, list); refreshManual(); syncViews();
         }));
     };
-    refresh();
+    refreshAuto();
+    refreshManual();
     $("mi-add").addEventListener("click", () => {
       const title = $("mi-title").value.trim();
       if (!title) { $("mi-title").focus(); return; }
@@ -815,7 +903,7 @@
       });
       saveManual(ep.url, list);
       $("mi-title").value = ""; $("mi-note").value = "";
-      refresh();
+      refreshManual(); syncViews();
     });
   }
 
@@ -825,7 +913,7 @@
     // key issues by title so identical findings across endpoints group together
     const byIssue = new Map();
     for (const ep of DATA) {
-      for (const iss of allIssues(ep)) {
+      for (const iss of effectiveIssues(ep)) {
         if (counts[iss.severity] != null) counts[iss.severity]++;
         const key = iss.severity + "" + iss.title;
         if (!byIssue.has(key)) byIssue.set(key, { title: iss.title, severity: iss.severity, eps: [] });
@@ -855,8 +943,8 @@
   function findingsPayload() {
     return DATA.map((ep) => ({
       url: ep.url, ip: ep.ip, port: ep.port, status: ep.status,
-      title: ep.title, interest: score(allIssues(ep)),
-      issues: allIssues(ep).map((i) => ({ title: i.title, severity: i.severity, detail: i.detail || "", source: i.source })),
+      title: ep.title, interest: score(effectiveIssues(ep)),
+      issues: effectiveIssues(ep).map((i) => ({ title: i.title, severity: i.severity, detail: i.detail || "", source: i.source })),
     }));
   }
   function download(name, mime, text) {
@@ -945,7 +1033,7 @@
   function buildSummary() {
     const counts = {}; SEVERITIES.forEach((s) => (counts[s] = 0));
     let total = 0;
-    for (const ep of DATA) for (const i of allIssues(ep)) {
+    for (const ep of DATA) for (const i of effectiveIssues(ep)) {
       if (counts[i.severity] != null) { counts[i.severity]++; total++; }
     }
     const bar = $("sumbar");
